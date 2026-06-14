@@ -180,3 +180,17 @@ mkdir -p /home/ubuntuai/cvetriage_reports
 ## License
 
 MIT License
+
+## Changelog
+
+### v1.0 — 2026-06-14
+- [x] Built end-to-end n8n pipeline from scratch
+- [x] Nmap subnet scan via SSH to Kali Linux
+- [x] Nmap XML parser — extracts host/port/service/version
+- [x] NVD API v2.0 integration per detected service
+- [x] AI triage via Claude claude-sonnet-4-6 with CVSS prioritization
+- [x] Severity filter — Critical findings only
+- [x] Markdown remediation report generation
+- [x] Automated report delivery to ubuntuai via SSH
+- [x] Empty product/version filter to eliminate irrelevant CVE matches
+- [x] GitHub repo with workflow export, scripts, prompts, and sample report
