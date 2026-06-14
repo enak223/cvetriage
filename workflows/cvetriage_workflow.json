@@ -1,0 +1,361 @@
+{
+  "name": "CVETriage",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 2
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1344,
+        -1152
+      ],
+      "id": "d9640086-a667-403b-a96b-3a5d238c86d0",
+      "name": "CVETriage - Schedule"
+    },
+    {
+      "parameters": {
+        "command": "nmap -sV -sC -oX /tmp/cvetriage_scan.xml 192.168.248.0/24 && cat /tmp/cvetriage_scan.xml"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        -1136,
+        -1152
+      ],
+      "id": "2b192e88-7923-4f11-94c6-375a765768b4",
+      "name": "CVETriage - Nmap Scan",
+      "credentials": {
+        "sshPassword": {
+          "id": "ead40n1im1mGVoUd",
+          "name": "kaliai SSH Pass account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const stdout = $input.first().json.stdout;\n\nfunction extractAttr(tag, attr) {\n  const match = tag.match(new RegExp(`${attr}=\"([^\"]*)\"`));\n  return match ? match[1] : '';\n}\n\nconst results = [];\nconst hostBlocks = stdout.match(/<host[\\s\\S]*?<\\/host>/g) || [];\n\nfor (const hostBlock of hostBlocks) {\n  if (!hostBlock.includes('state=\"up\"')) continue;\n\n  const addrMatch = hostBlock.match(/<address addr=\"([^\"]+)\" addrtype=\"ipv4\"/);\n  const ip = addrMatch ? addrMatch[1] : 'unknown';\n\n  const hostnameMatch = hostBlock.match(/<hostname name=\"([^\"]+)\"/);\n  const hostname = hostnameMatch ? hostnameMatch[1] : '';\n\n  const portBlocks = hostBlock.match(/<port[\\s\\S]*?<\\/port>/g) || [];\n\n  for (const portBlock of portBlocks) {\n    if (!portBlock.includes('state=\"open\"')) continue;\n\n    const protocol  = extractAttr(portBlock, 'protocol');\n    const portid    = extractAttr(portBlock, 'portid');\n    const service   = extractAttr(portBlock, 'name');\n    const product   = extractAttr(portBlock, 'product');\n    const version   = extractAttr(portBlock, 'version');\n    const extrainfo = extractAttr(portBlock, 'extrainfo');\n    const cpe       = (portBlock.match(/<cpe>(.*?)<\\/cpe>/) || [])[1] || '';\n    const nvdKeyword = [product, version].filter(Boolean).join(' ').trim() || service;\n    // Skip services with no product or version detected\n    if (!product && !version) continue;\n    results.push({\n      json: {\n        ip,\n        hostname,\n        protocol,\n        port:      parseInt(portid, 10),\n        service,\n        product,\n        version,\n        extrainfo,\n        cpe,\n        nvdKeyword,\n        serviceId: `${ip}:${portid}/${protocol}`,\n        scannedAt: new Date().toISOString(),\n      }\n    });\n  }\n}\n\nif (results.length === 0) {\n  return [{ json: { status: 'no_open_ports', scannedAt: new Date().toISOString() } }];\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -1152
+      ],
+      "id": "b096a1cb-af17-4fdc-a37e-da7237151093",
+      "name": "CVETriage - Parse XML"
+    },
+    {
+      "parameters": {
+        "options": {
+          "reset": false
+        }
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -736,
+        -1152
+      ],
+      "id": "77cbfad5-6e42-4683-ae6d-0b48a643fb46",
+      "name": "CVETriage - Loop Services"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "name": "loop missing part",
+      "typeVersion": 1,
+      "position": [
+        496,
+        384
+      ],
+      "id": "328eba67-4434-43b4-b69e-426e206f570a",
+      "placeholder": true
+    },
+    {
+      "parameters": {
+        "url": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "keywordSearch",
+              "value": "={{ $json.nvdKeyword }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -480,
+        -1136
+      ],
+      "id": "8bed7b87-c884-4b8f-8aa4-9088a09be900",
+      "name": "CVETriage - NVD Lookup"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a cybersecurity triage analyst. You will receive NVD API data containing CVEs for a detected network service.\n\nYour job is to:\n1. Identify the top CVEs by CVSS score from the vulnerabilities array\n2. Assign a priority: Critical (CVSS 9.0+), High (7.0-8.9), Medium (4.0-6.9), Low (below 4.0)\n3. Provide a one-sentence remediation recommendation for each CVE\n\nThe scanned service details are:\n- Service: {{ $('CVETriage - Parse XML').item.json.product }} {{ $('CVETriage - Parse XML').item.json.version }}\n- IP: {{ $('CVETriage - Parse XML').item.json.ip }}\n- Port: {{ $('CVETriage - Parse XML').item.json.port }}\n\nNVD API data (top 5 CVEs only):\n{{ JSON.stringify($json.vulnerabilities ? $json.vulnerabilities.slice(0,5) : []) }}\n\nRespond ONLY in this JSON format, no extra text:\n{\n  \"service\": \"<product and version>\",\n  \"ip\": \"<ip address>\",\n  \"port\": \"<port>\",\n  \"cves\": [\n    {\n      \"id\": \"<CVE-ID>\",\n      \"cvss\": <score>,\n      \"priority\": \"<Critical|High|Medium|Low>\",\n      \"summary\": \"<one sentence description>\",\n      \"remediation\": \"<one sentence fix>\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -1440,
+        -1376
+      ],
+      "id": "b302c34a-3f44-4641-9961-9ec2274b9c75",
+      "name": "CVETriage - AI Triage"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-6",
+          "cachedResultName": "Claude Sonnet 4.6"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.5,
+      "position": [
+        -1456,
+        -1232
+      ],
+      "id": "caca58b0-89bc-45ef-ab04-dd756ee5ad20",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "eA1PCyJIYtawwyQ4",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b6763fb7-cbf6-4306-a6cb-2ca565c4bab9",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "Critical",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1152,
+        -1376
+      ],
+      "id": "c79f9db1-bb03-4035-a002-09abf8a7fac6",
+      "name": "CVETriage - Severity Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet report = `# CVETriage Report\\n`;\nreport += `**Generated:** ${new Date().toISOString()}\\n\\n`;\nreport += `---\\n\\n`;\n\nfor (const item of items) {\n  let parsed;\n  try {\n    const raw = item.json.output.replace(/```json|```/g, '').trim();\n    parsed = JSON.parse(raw);\n  } catch(e) {\n    continue;\n  }\n\n  report += `## ${parsed.service} — ${parsed.ip}:${parsed.port}\\n\\n`;\n  report += `| CVE ID | CVSS | Priority | Summary |\\n`;\n  report += `|--------|------|----------|---------|\\n`;\n\n  for (const cve of parsed.cves) {\n    report += `| ${cve.id} | ${cve.cvss} | ${cve.priority} | ${cve.summary} |\\n`;\n  }\n\n  report += `\\n### Remediation Steps\\n`;\n  for (const cve of parsed.cves) {\n    report += `- **${cve.id}:** ${cve.remediation}\\n`;\n  }\n  report += `\\n---\\n\\n`;\n}\n\nreturn [{ json: { report, generatedAt: new Date().toISOString() } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -1456
+      ],
+      "id": "9ad926af-20cb-4157-b44b-be937b6c8fb3",
+      "name": "CVETriage - Report Builder"
+    },
+    {
+      "parameters": {
+        "jsCode": "const report = $input.first().json.report;\nconst timestamp = new Date().toISOString().replace(/[:.]/g, '-');\nconst filename = `cvetriage_report_${timestamp}.md`;\n\nconst binary = Buffer.from(report.replace(/\\\\n/g, '\\n'), 'utf8').toString('base64');\n\nreturn [{\n  json: {\n    filename,\n    generatedAt: $input.first().json.generatedAt\n  },\n  binary: {\n    data: {\n      data: binary,\n      mimeType: 'text/markdown',\n      fileName: filename\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -736,
+        -1456
+      ],
+      "id": "ebdfaa1b-1d9f-4c77-8a6f-7bf61923a96d",
+      "name": "CVETriage - Write File"
+    },
+    {
+      "parameters": {
+        "command": "=echo '{{ $('CVETriage - Report Builder').item.json.report.replace(/\\\\n/g, \"\\n\") }}' > /home/ubuntuai/cvetriage_reports/cvetriage_report.md"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        -1456
+      ],
+      "id": "91deee7f-e6f4-496a-a851-30cbbfe2b5de",
+      "name": "CVETriage - Save to Disk",
+      "credentials": {
+        "sshPassword": {
+          "id": "gtaI2jJmO0f3vjao",
+          "name": "ubuntuai SSH Password account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "CVETriage - Schedule": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Nmap Scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - Nmap Scan": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Parse XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - Parse XML": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Loop Services",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - Loop Services": {
+      "main": [
+        [],
+        [
+          {
+            "node": "CVETriage - NVD Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "loop missing part": {
+      "main": [
+        []
+      ]
+    },
+    "CVETriage - NVD Lookup": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Loop Services",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "CVETriage - AI Triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "CVETriage - AI Triage",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - AI Triage": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Severity Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - Severity Filter": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Report Builder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - Report Builder": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Write File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CVETriage - Write File": {
+      "main": [
+        [
+          {
+            "node": "CVETriage - Save to Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f92d7dd4-4415-414d-a99b-099219fcb6f1",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "2a2c072b2544679c21e34728aea326ae943580ea095f9845a1269124b81e2ae7"
+  },
+  "nodeGroups": [],
+  "id": "jB8A76kWVe8On6OZ",
+  "tags": []
+}
