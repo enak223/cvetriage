@@ -160,3 +160,23 @@ mkdir -p /home/ubuntuai/cvetriage_reports
 **Why slice NVD results to top 5?** The NVD API can return thousands of CVEs for broad keyword searches. Limiting to 5 per service keeps AI triage token costs low while capturing the highest-severity findings.
 
 **Why SSH for report delivery?** The n8n Docker container's volume mount only covers \`/home/node/.n8n\`. SSH to the host bypasses container filesystem isolation cleanly.
+
+## Roadmap
+
+| Phase | Feature | Status |
+|-------|---------|--------|
+| v1.0 | Nmap subnet scan via SSH to Kali Linux | ✅ Complete |
+| v1.0 | Nmap XML parser — host/port/service/version extraction | ✅ Complete |
+| v1.0 | NVD API v2.0 integration per detected service | ✅ Complete |
+| v1.0 | AI triage via Claude claude-sonnet-4-6 with CVSS prioritization | ✅ Complete |
+| v1.0 | Severity filter — Critical findings only | ✅ Complete |
+| v1.0 | Markdown remediation report generation | ✅ Complete |
+| v1.0 | Automated report delivery to ubuntuai via SSH | ✅ Complete |
+| v1.0 | Empty product/version filter — eliminate irrelevant CVE matches | ✅ Complete |
+| v1.0 | GitHub repo with workflow export, scripts, prompts, and sample report | ✅ Complete |
+| v1.1 | Add Windows 11 and Ubuntu web server to scan scope | 🔲 Future |
+| v1.1 | Store historical reports with timestamp-based filenames | 🔲 Future |
+| v1.2 | Integrate Wazuh alerts as a second CVE trigger source | 🔲 Future |
+| v1.2 | Add Slack/email notification on Critical findings | 🔲 Future |
+| v1.3 | Add CVSS vector string parsing for attack vector context | 🔲 Future |
+| v1.4 | Build a dashboard to visualize CVE trends over time | 🔲 Future |
