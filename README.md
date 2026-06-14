@@ -180,3 +180,16 @@ mkdir -p /home/ubuntuai/cvetriage_reports
 | v1.2 | Add Slack/email notification on Critical findings | 🔲 Future |
 | v1.3 | Add CVSS vector string parsing for attack vector context | 🔲 Future |
 | v1.4 | Build a dashboard to visualize CVE trends over time | 🔲 Future |
+
+## Author
+
+**Eliezer Fuentes** — Cybersecurity Professional
+
+Threat Hunting | Vulnerability Management | SOC Automation | Offensive Security
+
+[![GitHub](https://img.shields.io/badge/GitHub-enak223-181717?logo=github)](https://github.com/enak223)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-eliezerfuentes-0A66C2?logo=linkedin)](https://linkedin.com/in/eliezerfuentes)
+
+---
+
+*Detect. Triage. Remediate.*
